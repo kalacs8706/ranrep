@@ -3,20 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>.IMGE Pro Tool</title>
+    <title>.IMGE Ultimate Tool</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; max-width: 800px; margin: 2rem auto; background: #f8fafc; padding: 20px; color: #1e293b; }
+        body { font-family: 'Segoe UI', sans-serif; max-width: 800px; margin: 2rem auto; background: #f0f4f8; padding: 20px; color: #1e293b; }
         .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 25px; }
         h3 { margin-top: 0; color: #334155; }
         
-        /* Progress Bar Styles */
-        .progress-container { width: 100%; background: #e2e8f0; height: 12px; border-radius: 10px; margin: 15px 0; overflow: hidden; display: none; }
+        /* Progress Bar */
+        .progress-container { width: 100%; background: #e2e8f0; height: 10px; border-radius: 10px; margin: 15px 0; overflow: hidden; display: none; }
         .progress-bar { width: 0%; height: 100%; background: #3b82f6; transition: width 0.1s; }
         
-        .input-group { margin: 20px 0; padding: 15px; background: #f1f5f9; border-radius: 8px; border: 2px dashed #cbd5e1; }
-        textarea { width: 100%; height: 100px; font-family: monospace; margin-top: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 11px; }
-        canvas { border: 1px solid #334155; margin-top: 20px; max-width: 100%; image-rendering: pixelated; background: #fff; }
+        /* Controls */
+        .input-group { margin: 20px 0; padding: 15px; background: #f8fafc; border-radius: 8px; border: 2px dashed #cbd5e1; }
+        .toggle-group { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-size: 0.9rem; font-weight: bold; cursor: pointer; }
+        
+        /* Hidden elements */
+        #outputPreview, #canvasContainer { display: none; }
+        
+        textarea { width: 100%; height: 150px; font-family: monospace; margin-top: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 11px; }
+        canvas { border: 1px solid #334155; margin-top: 10px; max-width: 100%; image-rendering: pixelated; background: #fff; }
         .status-text { font-size: 0.85rem; font-weight: bold; color: #64748b; }
+        
+        /* Simple Switch Style */
+        .switch { position: relative; display: inline-block; width: 40px; height: 20px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px; }
+        .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #3b82f6; }
+        input:checked + .slider:before { transform: translateX(20px); }
     </style>
 </head>
 <body>
@@ -26,10 +40,19 @@
     <div class="input-group">
         <input type="file" id="imageInput" accept="image/*">
     </div>
+    
+    <label class="toggle-group">
+        <div class="switch">
+            <input type="checkbox" id="toggleText">
+            <span class="slider"></span>
+        </div>
+        Show Raw Code Preview (May slow down large images)
+    </label>
+
     <div id="encodeProgressCont" class="progress-container">
         <div id="encodeBar" class="progress-bar"></div>
     </div>
-    <div id="encodeStatus" class="status-text">Ready to convert...</div>
+    <div id="encodeStatus" class="status-text">Waiting for file...</div>
     <textarea id="outputPreview" readonly placeholder="Output preview..."></textarea>
 </div>
 
@@ -38,16 +61,38 @@
     <div class="input-group">
         <input type="file" id="imgeFileInput" accept=".imge">
     </div>
+
+    <label class="toggle-group">
+        <div class="switch">
+            <input type="checkbox" id="toggleCanvas" checked>
+            <span class="slider"></span>
+        </div>
+        Show Rendered Image Preview
+    </label>
+
     <div id="decodeProgressCont" class="progress-container">
         <div id="decodeBar" class="progress-bar"></div>
     </div>
-    <div id="decodeStatus" class="status-text">Ready to decode...</div>
-    <canvas id="mainCanvas"></canvas>
+    <div id="decodeStatus" class="status-text">Upload a .imge file to decode.</div>
+    
+    <div id="canvasContainer">
+        <canvas id="mainCanvas"></canvas>
+    </div>
 </div>
 
 <script>
     const canvas = document.getElementById('mainCanvas');
     const ctx = canvas.getContext('2d');
+
+    // --- TOGGLE LOGIC ---
+    document.getElementById('toggleText').addEventListener('change', function() {
+        document.getElementById('outputPreview').style.display = this.checked ? 'block' : 'none';
+    });
+    document.getElementById('toggleCanvas').addEventListener('change', function() {
+        document.getElementById('canvasContainer').style.display = this.checked ? 'block' : 'none';
+    });
+    // Initialize decoder preview based on default checkbox state
+    if(document.getElementById('toggleCanvas').checked) document.getElementById('canvasContainer').style.display = 'block';
 
     // --- ENCODER LOGIC ---
     document.getElementById('imageInput').addEventListener('change', function(e) {
@@ -74,10 +119,8 @@
                 progCont.style.display = 'block';
                 let y = 0;
 
-                // Process rows in chunks to keep the UI responsive
                 function processRows() {
-                    const chunkEnd = Math.min(y + 20, img.height); // Process 20 rows at a time
-                    
+                    const chunkEnd = Math.min(y + 25, img.height);
                     for (; y < chunkEnd; y++) {
                         let colors = {};
                         for (let x = 0; x < img.width; x++) {
@@ -92,7 +135,6 @@
                         output += rowParts.join(', ') + ',\n';
                     }
 
-                    // Update progress bar
                     const percent = Math.floor((y / img.height) * 100);
                     bar.style.width = percent + "%";
                     status.innerText = `Converting: ${percent}%`;
@@ -100,22 +142,17 @@
                     if (y < img.height) {
                         requestAnimationFrame(processRows);
                     } else {
-                        finishEncoding();
+                        document.getElementById('outputPreview').value = output;
+                        const blob = new Blob([output], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = file.name.split('.')[0] + ".imge";
+                        a.click();
+                        status.innerText = "✓ Downloaded!";
+                        setTimeout(() => progCont.style.display = 'none', 2000);
                     }
                 }
-
-                function finishEncoding() {
-                    document.getElementById('outputPreview').value = output;
-                    const blob = new Blob([output], { type: 'text/plain' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = file.name.split('.')[0] + ".imge";
-                    a.click();
-                    status.innerText = "✓ Conversion Complete & Downloaded!";
-                    setTimeout(() => progCont.style.display = 'none', 2000);
-                }
-
                 processRows();
             };
             img.src = event.target.result;
@@ -127,12 +164,11 @@
     document.getElementById('imgeFileInput').addEventListener('change', function(e) {
         if (!this.files[0]) return;
         const reader = new FileReader();
-
         reader.onload = (event) => {
             const text = event.target.result.trim();
             const lines = text.split('\n');
             const lengthMatch = lines[0].match(/lineLength\s*=\s*(\d+)/);
-            if (!lengthMatch) return alert("Invalid file format");
+            if (!lengthMatch) return alert("Invalid .imge file");
 
             const width = parseInt(lengthMatch[1]);
             const height = lines.length - 1;
@@ -146,25 +182,23 @@
 
             let lineIdx = 1;
             function decodeRows() {
-                const chunkEnd = Math.min(lineIdx + 50, lines.length);
-
+                const chunkEnd = Math.min(lineIdx + 60, lines.length);
                 for (; lineIdx < chunkEnd; lineIdx++) {
                     const rowStr = lines[lineIdx];
                     if (!rowStr) continue;
-                    const y = lineIdx - 1;
-
                     const segments = rowStr.split(',').filter(s => s.trim().length > 0);
                     segments.forEach(seg => {
-                        const [indicesPart, color] = seg.split('=').map(s => s.trim());
-                        if (!color) return;
+                        const parts = seg.split('=');
+                        if(parts.length < 2) return;
+                        const indicesPart = parts[0].trim();
+                        const color = parts[1].trim();
                         const indices = indicesPart.replace(/\.$/, '').split('.');
                         indices.forEach(idx => {
                             ctx.fillStyle = color;
-                            ctx.fillRect(parseInt(idx) - 1, y, 1, 1);
+                            ctx.fillRect(parseInt(idx) - 1, lineIdx - 1, 1, 1);
                         });
                     });
                 }
-
                 const percent = Math.floor((lineIdx / lines.length) * 100);
                 bar.style.width = percent + "%";
                 status.innerText = `Decoding: ${percent}%`;
@@ -172,7 +206,7 @@
                 if (lineIdx < lines.length) {
                     requestAnimationFrame(decodeRows);
                 } else {
-                    status.innerText = "✓ Decoding Complete!";
+                    status.innerText = "✓ Image Restored!";
                     setTimeout(() => progCont.style.display = 'none', 2000);
                 }
             }
